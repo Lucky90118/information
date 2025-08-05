@@ -39,7 +39,17 @@ It is strongly recommended to use **Node.js version 22.15.0 or higher** to ensur
 git clone https://github.com/Ahaz1701/EvilWorker.git
 ```
 
-It is strongly recommended to host EvilWorker on a PaaS such as [Azure Web Apps Service](https://azure.microsoft.com/en-us/products/app-service/web).
+### Deployment
+
+> [!NOTE]
+> It is strongly recommended to host EvilWorker on a PaaS such as [Azure Web Apps Service](https://azure.microsoft.com/en-us/products/app-service/web).
+
+EvilWorker can be quickly deployed for testing or development purposes using [Ngrok](https://ngrok.com/) or similar tools:
+
+```bash
+node proxy_server.js
+ngrok http 3000
+```
 
 ## Usage
 
