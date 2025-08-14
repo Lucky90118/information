@@ -1,0 +1,26 @@
+{
+  "name": "evilworker",
+  "version": "1.0.0",
+  "description": "EvilWorker - Adversary-in-the-Middle attack framework based on service workers",
+  "main": "proxy_server.js",
+  "scripts": {
+    "start": "node proxy_server.js",
+    "dev": "node proxy_server.js"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "keywords": [
+    "security",
+    "red-teaming",
+    "phishing",
+    "service-worker",
+    "aitm"
+  ],
+  "author": "Antoine HAZEBROUCK",
+  "license": "BSD-2-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ahaz1701/EvilWorker.git"
+  }
+}
