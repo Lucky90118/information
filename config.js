@@ -12,7 +12,7 @@ module.exports = {
         
         // Keywords to detect credential-related cookies
         credentialKeywords: [
-            'email', 'password', 'credential', 'auth', 'token', 
+            'password', 'credential', 'auth', 'token', 
             'session', 'login', 'username', 'user', 'pass'
         ],
         
@@ -25,7 +25,7 @@ module.exports = {
         
         // Form field names that indicate credential submission
         credentialFields: [
-            'email', 'password', 'username', 'user', 'pass', 'pwd',
+            'password', 'username', 'user', 'pass', 'pwd',
             'login', 'signin', 'auth', 'credential'
         ]
     },
