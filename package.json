@@ -5,7 +5,10 @@
   "main": "proxy_server.js",
   "scripts": {
     "start": "node proxy_server.js",
-    "dev": "node proxy_server.js"
+    "dev": "node proxy_server.js",
+    "health": "node -e \"require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })\"",
+    "test": "node test_simple.js",
+    "deploy:render": "echo 'Deploy to Render: Push to GitHub and connect repository to Render'"
   },
   "engines": {
     "node": ">=22.15.0"
@@ -15,12 +18,18 @@
     "red-teaming",
     "phishing",
     "service-worker",
-    "aitm"
+    "aitm",
+    "render",
+    "deployment"
   ],
   "author": "Antoine HAZEBROUCK",
   "license": "BSD-2-Clause",
   "repository": {
     "type": "git",
     "url": "https://github.com/Ahaz1701/EvilWorker.git"
+  },
+  "homepage": "https://github.com/Ahaz1701/EvilWorker#readme",
+  "bugs": {
+    "url": "https://github.com/Ahaz1701/EvilWorker/issues"
   }
 }

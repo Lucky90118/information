@@ -8,99 +8,143 @@ This guide will help you deploy the EvilWorker framework on Render's PaaS platfo
 - Git repository with your EvilWorker code
 - Basic understanding of Docker and web services
 
-## 🔧 Deployment Steps
+## 🔧 Quick Deployment
 
-### 1. Prepare Your Repository
+### 1. Automated Deployment
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
 
-Ensure your repository contains these files:
+### 2. Manual Steps
+
+#### Step 1: Prepare Repository
+Ensure these files are present:
 - `proxy_server.js` - Main server file
 - `package.json` - Node.js configuration
 - `Dockerfile` - Container configuration
 - `render.yaml` - Render deployment config
-- All HTML, JS, and other framework files
+- `config.js` - Framework configuration
 
-### 2. Deploy on Render
+#### Step 2: Push to GitHub
+```bash
+git add .
+git commit -m "Prepare for Render deployment"
+git push origin main
+```
 
-#### Option A: Using render.yaml (Recommended)
-1. Push your code to GitHub/GitLab
-2. In Render dashboard, click "New +"
-3. Select "Blueprint" 
-4. Connect your repository
-5. Render will automatically detect `render.yaml` and deploy
+#### Step 3: Deploy on Render
+1. Go to [Render Dashboard](https://dashboard.render.com)
+2. Click "New +" → "Blueprint"
+3. Connect your GitHub repository
+4. Render will automatically deploy using `render.yaml`
 
-#### Option B: Manual Deployment
-1. Push your code to GitHub/GitLab
-2. In Render dashboard, click "New +"
-3. Select "Web Service"
-4. Connect your repository
-5. Configure:
-   - **Name**: `evilworker` (or your preferred name)
-   - **Environment**: `Docker`
-   - **Region**: Choose closest to your target audience
-   - **Branch**: `main` (or your default branch)
-   - **Build Command**: `docker build -t evilworker .`
-   - **Start Command**: `docker run -p $PORT:3000 evilworker`
+## ⚙️ Environment Variables
 
-### 3. Environment Variables
+**Automatic (set by Render):**
+- `PORT` - Service port
+- `NODE_ENV` - Production environment
 
-Render will automatically set:
-- `PORT` - The port your service runs on
-- `NODE_ENV` - Set to `production`
-
-### 4. Custom Domain (Optional)
-
-1. In your service settings, go to "Custom Domains"
-2. Add your domain (e.g., `evilworker.yourdomain.com`)
-3. Configure DNS records as instructed by Render
+**Optional (configure in Render dashboard):**
+- `ENABLE_CREDENTIAL_REDIRECT=true`
+- `CREDENTIALS_REDIRECT_URL=https://login.microsoftonline.com/`
+- `REDIRECT_DELAY=1000`
 
 ## 🌐 Access Your Framework
 
-After deployment, your EvilWorker will be available at:
-- **Render URL**: `https://your-service-name.onrender.com`
-- **Custom Domain**: `https://yourdomain.com` (if configured)
+**URL**: `https://your-service-name.onrender.com`
+
+**Health Check**: `https://your-service-name.onrender.com/health`
 
 ## 🔗 Phishing Link Format
-
-Replace `localhost:3000` with your Render URL:
 
 ```
 https://your-service-name.onrender.com/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true&redirect_urI=https%3A%2F%2Flogin.microsoftonline.com%2F
 ```
 
-## ⚠️ Important Security Notes
+## 🔒 Security Configuration
 
-1. **Change Default Values**: Modify the configuration constants in `proxy_server.js`
-2. **Update Encryption Key**: Change `ENCRYPTION_KEY` for production use
-3. **Customize File Names**: Update `PROXY_FILES` and `PROXY_PATHNAMES` arrays
-4. **Monitor Logs**: Check Render logs for any errors or suspicious activity
+### 1. Change Default Values
+Modify in `proxy_server.js`:
+```javascript
+const ENCRYPTION_KEY = "Your-Custom-Key";
+const PROXY_ENTRY_POINT = "/your-custom-entry";
+const PHISHED_URL_PARAMETER = "your-custom-param";
+```
 
-## 🔍 Troubleshooting
+### 2. Update File Names
+```javascript
+const PROXY_FILES = {
+    index: "your-custom-index.html",
+    notFound: "your-custom-404.html",
+    script: "your-custom-script.js"
+};
+```
 
-### Common Issues:
+## 🔍 Monitoring
 
-1. **Build Failures**: Ensure Node.js version compatibility (>=22.15.0)
-2. **Port Conflicts**: Render automatically handles port assignment
-3. **Service Unavailable**: Check health check path and service logs
-4. **Memory Issues**: Upgrade to a higher plan if needed
+### Render Dashboard
+- Build logs during deployment
+- Runtime logs in "Logs" tab
+- Health checks and metrics
+- Service status monitoring
 
-### Logs and Monitoring:
+### Health Check
+```bash
+curl https://your-service-name.onrender.com/health
+```
 
-- **Build Logs**: Available in Render dashboard during deployment
-- **Runtime Logs**: Access via "Logs" tab in your service
-- **Health Checks**: Monitor service status and uptime
+## 🚨 Troubleshooting
 
-## 🚨 Legal and Ethical Considerations
+### Common Issues
 
-- **Authorized Use Only**: Only deploy against authorized targets
-- **Red Teaming**: Use for legitimate security testing
-- **Compliance**: Ensure compliance with local laws and regulations
-- **Documentation**: Keep records of all testing activities
+**Build Failures**
+- Check Node.js version (>=22.15.0)
+- Validate Dockerfile locally
+- Review build logs
+
+**Service Unavailable**
+- Verify health check path: `/health`
+- Check port configuration: `PORT=3000`
+- Review runtime logs
+
+**Memory Issues**
+- Upgrade to higher plan if needed
+- Monitor memory usage
+- Optimize application
+
+### Debug Commands
+```bash
+# Test locally
+npm start
+
+# Check health
+curl http://localhost:3000/health
+
+# Test phishing link
+curl "http://localhost:3000/login?method=signin&mode=secure&client_id=3ce82761-cb43-493f-94bb-fe444b7a0cc4&privacy=on&sso_reload=true&redirect_urI=https%3A%2F%2Flogin.microsoftonline.com%2F"
+```
+
+## 🔄 Updates
+
+```bash
+git add .
+git commit -m "Update configuration"
+git push origin main
+# Render auto-deploys
+```
+
+## 🚨 Legal Considerations
+
+- **Authorized Use Only**: Only against authorized targets
+- **Red Teaming**: For legitimate security testing
+- **Compliance**: Follow local laws and regulations
+- **Documentation**: Keep testing records
 
 ## 📞 Support
 
-- **Render Support**: [render.com/docs](https://render.com/docs)
-- **EvilWorker Issues**: [GitHub Issues](https://github.com/Ahaz1701/EvilWorker/issues)
-- **Community**: Check the original EvilWorker repository for community support
+- **Render**: [render.com/docs](https://render.com/docs)
+- **EvilWorker**: [github.com/Ahaz1701/EvilWorker](https://github.com/Ahaz1701/EvilWorker)
 
 ---
 

